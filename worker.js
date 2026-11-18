@@ -120,7 +120,7 @@ const img=await env.AI.run("@cf/bytedance/stable-diffusion-xl-lightning",{prompt
 }
 if(url.pathname!=="/api/chat")return url.pathname==="/"?Response.redirect(origin+"/Aura/",302):reply({error:"Not found"},404);
 if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
-if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"47",features:["market","news-search","wikipedia-search","cloudflare-gemma-fallback"]},200);
+if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"48",features:["market","news-search","wikipedia-search","cloudflare-gemma-fallback"]},200);
 if((!env.OPENROUTER_API_KEY&&!env.AI)||!env.AURA_ACCESS_TOKEN)return reply({error:"Server noch nicht eingerichtet"},503);
 if(request.headers.get("Authorization")!=="Bearer "+env.AURA_ACCESS_TOKEN)return reply({error:"Zugang verweigert"},401);
 try{
@@ -136,13 +136,13 @@ const history=Array.isArray(body.history)?body.history.slice(-6).filter(x=>x&&["
 const messages=[{role:"system",content:system+"\n"+context+(market?"\nAbgerufene Marktdaten: "+JSON.stringify(market):"")+(research?"\nSuchergebnisse: "+JSON.stringify(research):"")},...history,{role:"user",content:body.message}];
 if(/^(danke(?: schön| dir)?|vielen dank|thank you|thanks)[.! ]*$/i.test(body.message.trim()))return reply({answer:"Sehr gerne. Was möchtest du als Nächstes wissen?"});
 const detailed=/ausführlich|detailliert|berechnung|schritt für schritt/i.test(body.message);
-const budget=detailed?1600:650;
+const budget=detailed?1600:900;
 const now=Date.now();
 const cooldown=globalThis.auraChatCooldown||(globalThis.auraChatCooldown={});
 const routes=[
- {key:"cf-qwen",type:"cf",model:"@cf/qwen/qwen3.8-27b"},
- {key:"or-qwen",type:"or",model:"qwen/qwen3.6-plus:free"},
  {key:"cf-gemma",type:"cf",model:"@cf/google/gemma-4-26b-a4b-it"},
+ {key:"or-qwen",type:"or",model:"qwen/qwen3.6-plus:free"},
+ {key:"cf-qwen",type:"cf",model:"@cf/qwen/qwen3.8-27b"},
  {key:"or-nvidia",type:"or",model:"nvidia/nemotron-3.5-lightning:free"}
 ].filter(x=>x.type==="cf"?!!env.AI:!!env.OPENROUTER_API_KEY);
 const active=routes.filter(x=>(cooldown[x.key]||0)<=now&&(cooldown[x.type]||0)<=now);
@@ -151,12 +151,12 @@ async function askRoute(route){
  try{
  let answer;
  if(route.type==="or"){
- const res=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+env.OPENROUTER_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:route.model,messages,provider:{max_price:{prompt:0,completion:0}},max_tokens:budget}),signal:AbortSignal.timeout(6000)});
+ const res=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+env.OPENROUTER_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:route.model,messages,provider:{max_price:{prompt:0,completion:0}},max_tokens:budget}),signal:AbortSignal.timeout(12000)});
  if(!res.ok){if(res.status===429){cooldown.or=Date.now()+60000;throw Error("Nutzungslimit")}throw Error("HTTP "+res.status)}
  const d=await res.json();answer=d.choices?.[0]?.message?.content;
  }else{
  let timer;try{
- const result=await Promise.race([env.AI.run(route.model,{messages,max_completion_tokens:budget,temperature:0.3,...(route.model.includes("qwen")?{reasoning_effort:"low"}:{})}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error("Zeitlimit")),6500)})]);
+ const result=await Promise.race([env.AI.run(route.model,{messages,max_completion_tokens:budget,temperature:0.3,...(route.model.includes("qwen")?{reasoning_effort:"low"}:{})}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error("Zeitlimit")),18000)})]);
  answer=result?.choices?.[0]?.message?.content||result?.response;
  }finally{clearTimeout(timer)}
  }
@@ -173,6 +173,7 @@ async function askRoute(route){
 }
 const attempted=new Set();
 for(let round=0;round<2;round++){
+ if(round>0&&Date.now()-now>14000)break;
  const batch=active.filter(route=>!attempted.has(route.key)&&(cooldown[route.type]||0)<=Date.now()).filter((route,i,arr)=>arr.findIndex(x=>x.type===route.type)===i);
  if(!batch.length)break;
  batch.forEach(route=>attempted.add(route.key));
