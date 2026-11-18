@@ -100,7 +100,7 @@ const closes=(q.indicators?.quote?.[0]?.close||[]).filter(x=>typeof x==="number"
 const first=closes[0],last=closes[closes.length-1],change=first&&last?(last-first)/first*100:null;
 const market={symbol:meta.symbol||symbol,name:meta.longName||meta.shortName||symbol,price:meta.regularMarketPrice,currency:meta.currency||"",previousClose:meta.chartPreviousClose??meta.previousClose??null,change5d:change,marketState:meta.marketState||"unknown",quoteTime:meta.regularMarketTime||null,news};
 const prompt="Analysiere diese Aktie ausschließlich anhand der gelieferten Marktdaten und Schlagzeilen. Antworte auf Deutsch als JSON mit genau diesen Schlüsseln: signal (nur 'BEOBACHTEN', 'EHER POSITIV', 'EHER NEGATIV' oder 'DATEN UNZUREICHEND'), timing (konkrete Bedingung für einen möglichen Einstieg oder 'Kein belastbarer Einstiegspunkt'), exit (konkrete Bedingung für Risiko-Begrenzung/Gewinnmitnahme, keine Garantie), reasons (Array mit maximal 4 kurzen Gründen), risks (Array mit maximal 3 Risiken), confidence (NIEDRIG/MITTEL; niemals HOCH), horizon (KURZFRISTIG/MITTELFRISTIG). Erfinde keine Fakten. Nenne Trump, Krieg, Zölle, Politik oder Zinspolitik nur, wenn die gelieferten Schlagzeilen das ausdrücklich belegen. Wenn keine relevanten aktuellen Schlagzeilen vorhanden sind oder Daten fehlen, nutze DATEN UNZUREICHEND. Keine definitive Aufforderung zum Kaufen/Verkaufen. Trenne Nachricht und Interpretation. Daten: "+JSON.stringify(market);
-const ai=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+env.OPENROUTER_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:"openrouter/free",messages:[{role:"user",content:prompt}],max_tokens:700})});
+const ai=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+env.OPENROUTER_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:"qwen/qwen3.6-plus:free",provider:{max_price:{prompt:0,completion:0}},messages:[{role:"user",content:prompt}],max_tokens:700})});
 let analysis={signal:"DATEN UNZUREICHEND",timing:"Kein belastbarer Einstiegspunkt",exit:"Risikogrenze vor einem möglichen Einstieg selbst festlegen",reasons:["Keine verifizierte KI-Auswertung verfügbar."],risks:["Kursdaten und Schlagzeilen können verzögert sein."],confidence:"NIEDRIG",horizon:"KURZFRISTIG"};
 if(ai.ok){const ad=await ai.json();const raw=ad.choices?.[0]?.message?.content||"";try{const clean=raw.replace(/^```(?:json)?/i,"").replace(/```$/,"").trim();const parsed=JSON.parse(clean);if(["BEOBACHTEN","EHER POSITIV","EHER NEGATIV","DATEN UNZUREICHEND"].includes(parsed.signal))analysis={...analysis,...parsed}}catch{}}
 return reply({market,analysis,source:"Yahoo Finance headlines and quote data",disclaimer:"Informative AI analysis, not investment advice. Quotes/news may be delayed or incomplete."});
@@ -128,7 +128,7 @@ const img=await env.AI.run("@cf/bytedance/stable-diffusion-xl-lightning",{prompt
 }
 if(url.pathname!=="/api/chat")return url.pathname==="/"?Response.redirect(origin+"/Aura/",302):reply({error:"Not found"},404);
 if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
-if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"41",features:["market","news-search","wikipedia-search"]},200);
+if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"42",features:["market","news-search","wikipedia-search"]},200);
 if(!env.OPENROUTER_API_KEY||!env.AURA_ACCESS_TOKEN)return reply({error:"Server noch nicht eingerichtet"},503);
 if(request.headers.get("Authorization")!=="Bearer "+env.AURA_ACCESS_TOKEN)return reply({error:"Zugang verweigert"},401);
 try{
@@ -146,9 +146,9 @@ if(/^(danke(?: schön| dir)?|vielen dank|thank you|thanks)[.! ]*$/i.test(body.me
 let status=502;
 for(let attempt=0;attempt<2;attempt++){
  try{
- const r=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+env.OPENROUTER_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:attempt===0?"nvidia/nemotron-3-ultra-550b-a55b:free":"openrouter/free",messages,max_tokens:/ausführlich|detailliert|berechnung|schritt für schritt/i.test(body.message)?1800:1200}),signal:AbortSignal.timeout(17000)});
+ const r=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+env.OPENROUTER_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:attempt===0?"qwen/qwen3.6-plus:free":"nvidia/nemotron-3.5-lightning:free",messages,provider:{max_price:{prompt:0,completion:0}},max_tokens:/ausführlich|detailliert|berechnung|schritt für schritt/i.test(body.message)?1800:1200}),signal:AbortSignal.timeout(17000)});
  status=r.status;
- if(!r.ok){if(r.status===401||r.status===403||r.status===429)break;continue}
+ if(!r.ok){if(r.status===401||r.status===403)break;continue}
  const d=await r.json();const answer=d.choices?.[0]?.message?.content;
  if(audioTextValid(answer))return reply({answer:answer.trim()});
  }catch{}
