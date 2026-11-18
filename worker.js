@@ -1,3 +1,11 @@
+function audioTextValid(value){
+ if(typeof value!=="string")return false;
+ const t=value.trim();if(!t||t.length>1500)return false;
+ if(/^(?:(?:thank you(?: very much)?(?: for (?:watching|joining us today))?|thanks(?: for watching)?)[\s.,!?;:-]*)+$/i.test(t))return false;
+ const words=t.toLowerCase().match(/[\p{L}\p{N}]+/gu)||[];
+ if(words.length>12){for(let size=1;size<=8;size++){const counts=new Map();for(let i=0;i+size<=words.length;i+=size){const key=words.slice(i,i+size).join(" ");counts.set(key,(counts.get(key)||0)+1)}if([...counts.values()].some(n=>n>=4&&n*size>=words.length*.55))return false;}}
+ return true;
+}
 async function transcribe(request, env) {
  const audio=await request.arrayBuffer();
  if(audio.byteLength<44||audio.byteLength>5000000)throw new Error("Aufnahme leer oder zu groß");
@@ -9,14 +17,14 @@ async function transcribe(request, env) {
 
  try {
   const result=await env.AI.run("@cf/openai/whisper", {audio:Array.from(bytes)});
-  if(typeof result.text==="string"&&result.text.trim()&&!/^(thank you|thanks for watching|thank you for watching)[.! ]*$/i.test(result.text.trim()))return result.text;
+  if(audioTextValid(result.text))return result.text.trim();
   throw new Error("Kein Text erkannt");
  } catch(first) {
   let binary="";
   for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));
   try {
    const result=await env.AI.run("@cf/openai/whisper-large-v3-turbo",{audio:btoa(binary),language:"de"});
-   if(typeof result.text==="string"&&result.text.trim()&&!/^(thank you|thanks for watching|thank you for watching)[.! ]*$/i.test(result.text.trim()))return result.text;
+   if(audioTextValid(result.text))return result.text.trim();
    throw new Error("Kein Text erkannt");
   } catch(second) {throw new Error("Whisper: "+String(first.message||first).slice(0,100)+" / Turbo: "+String(second.message||second).slice(0,100));}
  }
@@ -120,7 +128,7 @@ const img=await env.AI.run("@cf/bytedance/stable-diffusion-xl-lightning",{prompt
 }
 if(url.pathname!=="/api/chat")return url.pathname==="/"?Response.redirect(origin+"/Aura/",302):reply({error:"Not found"},404);
 if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
-if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"40",features:["market","news-search","wikipedia-search"]},200);
+if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"41",features:["market","news-search","wikipedia-search"]},200);
 if(!env.OPENROUTER_API_KEY||!env.AURA_ACCESS_TOKEN)return reply({error:"Server noch nicht eingerichtet"},503);
 if(request.headers.get("Authorization")!=="Bearer "+env.AURA_ACCESS_TOKEN)return reply({error:"Zugang verweigert"},401);
 try{
@@ -142,7 +150,7 @@ for(let attempt=0;attempt<2;attempt++){
  status=r.status;
  if(!r.ok){if(r.status===401||r.status===403||r.status===429)break;continue}
  const d=await r.json();const answer=d.choices?.[0]?.message?.content;
- if(typeof answer==="string"&&answer.trim())return reply({answer:answer.trim()});
+ if(audioTextValid(answer))return reply({answer:answer.trim()});
  }catch{}
 }
 return reply({error:status===429?"Das kostenlose KI-Limit ist momentan erreicht. Bitte versuche es später erneut.":"Der KI-Dienst hat auch beim zweiten Versuch keine fertige Antwort geliefert. Bitte versuche es erneut."},502);
