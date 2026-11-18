@@ -5,7 +5,7 @@ async function transcribe(request, env) {
   }
   const result = await env.AI.run(
     "@cf/openai/whisper-large-v3-turbo",
-    { audio: Array.from(new Uint8Array(audio)), language: "de", task: "transcribe", vad_filter: true }
+    { audio: new Uint8Array(audio), language: "de", task: "transcribe", vad_filter: true }
   );
   return result.text || result.transcription_info?.text || "";
 }
