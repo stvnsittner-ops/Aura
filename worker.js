@@ -1,3 +1,14 @@
+async function transcribe(request, env) {
+  const audio = await request.arrayBuffer();
+  if (!audio.byteLength || audio.byteLength > 5000000) {
+    throw new Error("Ungültige Aufnahme");
+  }
+  const result = await env.AI.run(
+    "@cf/openai/whisper",
+    { audio: Array.from(new Uint8Array(audio)) }
+  );
+  return result.text;
+}
 export default {async fetch(request,env){
 const origin="https://stvnsittner-ops.github.io";
 const headers={"Access-Control-Allow-Origin":origin,"Access-Control-Allow-Methods":"POST, OPTIONS, GET","Access-Control-Allow-Headers":"Content-Type, Authorization","Cache-Control":"no-store"};
