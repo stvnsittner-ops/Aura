@@ -120,7 +120,7 @@ const img=await env.AI.run("@cf/bytedance/stable-diffusion-xl-lightning",{prompt
 }
 if(url.pathname!=="/api/chat")return url.pathname==="/"?Response.redirect(origin+"/Aura/",302):reply({error:"Not found"},404);
 if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
-if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"48",features:["market","news-search","wikipedia-search","cloudflare-gemma-fallback"]},200);
+if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"49",features:["market","news-search","wikipedia-search","cloudflare-gemma-fallback"]},200);
 if((!env.OPENROUTER_API_KEY&&!env.AI)||!env.AURA_ACCESS_TOKEN)return reply({error:"Server noch nicht eingerichtet"},503);
 if(request.headers.get("Authorization")!=="Bearer "+env.AURA_ACCESS_TOKEN)return reply({error:"Zugang verweigert"},401);
 try{
@@ -140,6 +140,7 @@ const budget=detailed?1600:900;
 const now=Date.now();
 const cooldown=globalThis.auraChatCooldown||(globalThis.auraChatCooldown={});
 const routes=[
+ {key:"cf-llama",type:"cf",model:"@cf/meta/llama-3.1-8b-instruct-fast"},
  {key:"cf-gemma",type:"cf",model:"@cf/google/gemma-4-26b-a4b-it"},
  {key:"or-qwen",type:"or",model:"qwen/qwen3.6-plus:free"},
  {key:"cf-qwen",type:"cf",model:"@cf/qwen/qwen3.8-27b"},
@@ -156,7 +157,7 @@ async function askRoute(route){
  const d=await res.json();answer=d.choices?.[0]?.message?.content;
  }else{
  let timer;try{
- const result=await Promise.race([env.AI.run(route.model,{messages,max_completion_tokens:budget,temperature:0.3,...(route.model.includes("qwen")?{reasoning_effort:"low"}:{})}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error("Zeitlimit")),18000)})]);
+ const result=await Promise.race([env.AI.run(route.model,route.key==="cf-llama"?{messages,max_tokens:detailed?700:220,temperature:0.3,repetition_penalty:1.1}:{messages,max_completion_tokens:budget,temperature:0.3,...(route.model.includes("qwen")?{reasoning_effort:"low"}:{})}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error("Zeitlimit")),18000)})]);
  answer=result?.choices?.[0]?.message?.content||result?.response;
  }finally{clearTimeout(timer)}
  }
