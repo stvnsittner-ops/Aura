@@ -120,7 +120,7 @@ const img=await env.AI.run("@cf/bytedance/stable-diffusion-xl-lightning",{prompt
 }
 if(url.pathname!=="/api/chat")return url.pathname==="/"?Response.redirect(origin+"/Aura/",302):reply({error:"Not found"},404);
 if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
-if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"46",features:["market","news-search","wikipedia-search","cloudflare-gemma-fallback"]},200);
+if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"47",features:["market","news-search","wikipedia-search","cloudflare-gemma-fallback"]},200);
 if((!env.OPENROUTER_API_KEY&&!env.AI)||!env.AURA_ACCESS_TOKEN)return reply({error:"Server noch nicht eingerichtet"},503);
 if(request.headers.get("Authorization")!=="Bearer "+env.AURA_ACCESS_TOKEN)return reply({error:"Zugang verweigert"},401);
 try{
@@ -171,11 +171,19 @@ async function askRoute(route){
  return null;
  }
 }
-for(const route of active){
- if(Date.now()-now>13000)break;
- if((cooldown[route.type]||0)>Date.now())continue;
- const answer=await askRoute(route);
- if(answer)return reply({answer});
+const attempted=new Set();
+for(let round=0;round<2;round++){
+ const batch=active.filter(route=>!attempted.has(route.key)&&(cooldown[route.type]||0)<=Date.now()).filter((route,i,arr)=>arr.findIndex(x=>x.type===route.type)===i);
+ if(!batch.length)break;
+ batch.forEach(route=>attempted.add(route.key));
+ try{
+ const answer=await Promise.any(batch.map(async route=>{
+ const value=await askRoute(route);
+ if(!value)throw Error("Keine Antwort");
+ return value;
+ }));
+ return reply({answer});
+ }catch{}
 }
 return reply({error:failures.length?"KI momentan nicht erreichbar ("+failures.join("; ")+"). Bitte kurz warten und erneut versuchen.":"KI-Anbieter sind vorübergehend pausiert. Bitte warte etwa eine Minute."},502);
 }catch{return reply({error:"Anfrage fehlgeschlagen"},400)}
