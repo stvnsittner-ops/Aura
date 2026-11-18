@@ -1,20 +1,20 @@
 async function transcribe(request, env) {
-  const audio = await request.arrayBuffer();
-  if (!audio.byteLength || audio.byteLength > 5000000) {
-    throw new Error("Ungültige Aufnahme");
-  }
-  const bytes = new Uint8Array(audio);
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  const audioBase64 = btoa(binary);
-  const result = await env.AI.run(
-    "@cf/openai/whisper-large-v3-turbo",
-    { audio: audioBase64, language: "de", task: "transcribe", vad_filter: false }
-  );
-  return result.text || result.transcription_info?.text || "";
+ const audio=await request.arrayBuffer();
+ if(audio.byteLength<44||audio.byteLength>5000000)throw new Error("Aufnahme leer oder zu groß");
+ const bytes=new Uint8Array(audio);
+ try {
+  const result=await env.AI.run("@cf/openai/whisper", {audio:Array.from(bytes)});
+  if(typeof result.text==="string"&&result.text.trim())return result.text;
+  throw new Error("Kein Text erkannt");
+ } catch(first) {
+  let binary="";
+  for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));
+  try {
+   const result=await env.AI.run("@cf/openai/whisper-large-v3-turbo",{audio:btoa(binary),language:"de"});
+   if(typeof result.text==="string"&&result.text.trim())return result.text;
+   throw new Error("Kein Text erkannt");
+  } catch(second) {throw new Error("Whisper: "+String(first.message||first).slice(0,100)+" / Turbo: "+String(second.message||second).slice(0,100));}
+ }
 }
 export default {async fetch(request,env){
 const origin="https://stvnsittner-ops.github.io";
