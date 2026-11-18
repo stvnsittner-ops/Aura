@@ -128,8 +128,8 @@ const img=await env.AI.run("@cf/bytedance/stable-diffusion-xl-lightning",{prompt
 }
 if(url.pathname!=="/api/chat")return url.pathname==="/"?Response.redirect(origin+"/Aura/",302):reply({error:"Not found"},404);
 if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
-if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"42",features:["market","news-search","wikipedia-search"]},200);
-if(!env.OPENROUTER_API_KEY||!env.AURA_ACCESS_TOKEN)return reply({error:"Server noch nicht eingerichtet"},503);
+if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"43",features:["market","news-search","wikipedia-search","cloudflare-gemma-fallback"]},200);
+if((!env.OPENROUTER_API_KEY&&!env.AI)||!env.AURA_ACCESS_TOKEN)return reply({error:"Server noch nicht eingerichtet"},503);
 if(request.headers.get("Authorization")!=="Bearer "+env.AURA_ACCESS_TOKEN)return reply({error:"Zugang verweigert"},401);
 try{
 if(Number(request.headers.get("Content-Length"))>20000)return reply({error:"Anfrage zu groß"},413);
@@ -144,12 +144,19 @@ const history=Array.isArray(body.history)?body.history.slice(-6).filter(x=>x&&["
 const messages=[{role:"system",content:system+"\n"+context+(market?"\nAbgerufene Marktdaten: "+JSON.stringify(market):"")+(research?"\nSuchergebnisse: "+JSON.stringify(research):"")},...history,{role:"user",content:body.message}];
 if(/^(danke(?: schön| dir)?|vielen dank|thank you|thanks)[.! ]*$/i.test(body.message.trim()))return reply({answer:"Sehr gerne. Was möchtest du als Nächstes wissen?"});
 let status=502;
-for(let attempt=0;attempt<2;attempt++){
+for(let attempt=0;env.OPENROUTER_API_KEY&&attempt<2;attempt++){
  try{
- const r=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+env.OPENROUTER_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:attempt===0?"qwen/qwen3.6-plus:free":"nvidia/nemotron-3.5-lightning:free",messages,provider:{max_price:{prompt:0,completion:0}},max_tokens:/ausführlich|detailliert|berechnung|schritt für schritt/i.test(body.message)?1800:1200}),signal:AbortSignal.timeout(17000)});
+ const r=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+env.OPENROUTER_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:attempt===0?"qwen/qwen3.6-plus:free":"nvidia/nemotron-3.5-lightning:free",messages,provider:{max_price:{prompt:0,completion:0}},max_tokens:/ausführlich|detailliert|berechnung|schritt für schritt/i.test(body.message)?1800:1200}),signal:AbortSignal.timeout(8000)});
  status=r.status;
  if(!r.ok){if(r.status===401||r.status===403)break;continue}
  const d=await r.json();const answer=d.choices?.[0]?.message?.content;
+ if(audioTextValid(answer))return reply({answer:answer.trim()});
+ }catch{}
+}
+if(env.AI){
+ try{
+ const result=await env.AI.run("@cf/google/gemma-4-26b-a4b-it",{messages,max_tokens:1000,temperature:0.3});
+ const answer=result?.response??result?.choices?.[0]?.message?.content;
  if(audioTextValid(answer))return reply({answer:answer.trim()});
  }catch{}
 }
