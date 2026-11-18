@@ -12,7 +12,7 @@ async function transcribe(request, env) {
   const audioBase64 = btoa(binary);
   const result = await env.AI.run(
     "@cf/openai/whisper-large-v3-turbo",
-    { audio: audioBase64, language: "de", task: "transcribe", vad_filter: true }
+    { audio: audioBase64, language: "de", task: "transcribe", vad_filter: false }
   );
   return result.text || result.transcription_info?.text || "";
 }
