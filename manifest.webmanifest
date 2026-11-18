@@ -1,0 +1,21 @@
+{
+  "id": "./",
+  "name": "AURA – Persönlicher KI-Assistent",
+  "short_name": "AURA",
+  "description": "Dein persönlicher KI-Assistent",
+  "lang": "de-DE",
+  "start_url": "./?source=homescreen",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#020611",
+  "theme_color": "#020611",
+  "icons": [
+    {
+      "src": "./aura-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
