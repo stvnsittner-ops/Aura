@@ -14,6 +14,21 @@ const origin="https://stvnsittner-ops.github.io";
 const headers={"Access-Control-Allow-Origin":origin,"Access-Control-Allow-Methods":"POST, OPTIONS, GET","Access-Control-Allow-Headers":"Content-Type, Authorization","Cache-Control":"no-store"};
 const reply=(data,status=200)=>Response.json(data,{status,headers});
 const url=new URL(request.url);
+if (url.pathname === "/api/speech") {
+  if (request.method === "OPTIONS")
+    return new Response(null,{status:204,headers});
+  if (request.method !== "POST")
+    return reply({error:"Method not allowed"},405);
+  if (!env.AURA_ACCESS_TOKEN ||
+      request.headers.get("Authorization") !==
+      "Bearer " + env.AURA_ACCESS_TOKEN)
+    return reply({error:"Zugang verweigert"},401);
+  try {
+    return reply({text:await transcribe(request,env)});
+  } catch {
+    return reply({error:"Spracherkennung fehlgeschlagen"},502);
+  }
+}
 if(url.pathname!=="/api/chat")return url.pathname==="/"?Response.redirect(origin+"/Aura/",302):reply({error:"Not found"},404);
 if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
 if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN)},200);
