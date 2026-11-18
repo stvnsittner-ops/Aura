@@ -128,7 +128,7 @@ const img=await env.AI.run("@cf/bytedance/stable-diffusion-xl-lightning",{prompt
 }
 if(url.pathname!=="/api/chat")return url.pathname==="/"?Response.redirect(origin+"/Aura/",302):reply({error:"Not found"},404);
 if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
-if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"43",features:["market","news-search","wikipedia-search","cloudflare-gemma-fallback"]},200);
+if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"44",features:["market","news-search","wikipedia-search","cloudflare-gemma-fallback"]},200);
 if((!env.OPENROUTER_API_KEY&&!env.AI)||!env.AURA_ACCESS_TOKEN)return reply({error:"Server noch nicht eingerichtet"},503);
 if(request.headers.get("Authorization")!=="Bearer "+env.AURA_ACCESS_TOKEN)return reply({error:"Zugang verweigert"},401);
 try{
@@ -153,13 +153,22 @@ for(let attempt=0;env.OPENROUTER_API_KEY&&attempt<2;attempt++){
  if(audioTextValid(answer))return reply({answer:answer.trim()});
  }catch{}
 }
+let cfStatus="nicht eingerichtet";
 if(env.AI){
+ for(const model of ["@cf/google/gemma-4-26b-a4b-it","@cf/qwen/qwen3.8-27b"]){
  try{
- const result=await env.AI.run("@cf/google/gemma-4-26b-a4b-it",{messages,max_tokens:1000,temperature:0.3});
- const answer=result?.response??result?.choices?.[0]?.message?.content;
+ const result=await env.AI.run(model,{messages,max_completion_tokens:1500,temperature:0.3,...(model.includes("qwen")?{reasoning_effort:"low"}:{})});
+ const answer=result?.choices?.[0]?.message?.content||result?.response;
  if(audioTextValid(answer))return reply({answer:answer.trim()});
- }catch{}
+ cfStatus="keine verwertbare Antwort";
+ }catch(e){
+ const msg=String(e?.message||e);
+ cfStatus=/quota|limit|neurons|429/i.test(msg)?"Nutzungslimit":/model.*(not found|unavailable)|5028/i.test(msg)?"Modell nicht verfügbar":"Dienstfehler";
+ console.warn("Aura Cloudflare",model,cfStatus, String(e?.code||""));
+ if(cfStatus==="Nutzungslimit")break;
+ }
+ }
 }
-return reply({error:status===429?"Das kostenlose KI-Limit ist momentan erreicht. Bitte versuche es später erneut.":"Der KI-Dienst hat auch beim zweiten Versuch keine fertige Antwort geliefert. Bitte versuche es erneut."},502);
+return reply({error:"OpenRouter: "+(status===429?"Nutzungslimit":"keine Antwort")+". Cloudflare: "+cfStatus+"."},502);
 }catch{return reply({error:"Anfrage fehlgeschlagen"},400)}
 }};
