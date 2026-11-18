@@ -3,9 +3,16 @@ async function transcribe(request, env) {
   if (!audio.byteLength || audio.byteLength > 5000000) {
     throw new Error("Ungültige Aufnahme");
   }
+  const bytes = new Uint8Array(audio);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  const audioBase64 = btoa(binary);
   const result = await env.AI.run(
     "@cf/openai/whisper-large-v3-turbo",
-    { audio: { body: audio, contentType: request.headers.get("Content-Type") || "audio/webm" }, language: "de", task: "transcribe", vad_filter: true }
+    { audio: audioBase64, language: "de", task: "transcribe", vad_filter: true }
   );
   return result.text || result.transcription_info?.text || "";
 }
