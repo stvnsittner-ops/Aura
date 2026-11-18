@@ -16,6 +16,26 @@ async function transcribe(request, env) {
   } catch(second) {throw new Error("Whisper: "+String(first.message||first).slice(0,100)+" / Turbo: "+String(second.message||second).slice(0,100));}
  }
 }
+
+async function chatMarketContext(question){
+ const q=question.toLowerCase();
+ const aliases={"nvidia":"NVDA","apple":"AAPL","microsoft":"MSFT","tesla":"TSLA","amazon":"AMZN","alphabet":"GOOGL","google":"GOOGL","sap":"SAP.DE","asml":"ASML","broadcom":"AVGO","tsmc":"TSM","meta":"META","bitcoin":"BTC-USD","dax":"^GDAXI","nasdaq":"^IXIC","s&p 500":"^GSPC","dow jones":"^DJI","nikkei":"^N225"};
+ const symbols=Object.entries(aliases).filter(([name])=>new RegExp("(^|[^a-z0-9])"+name.replace(/[.*+?^${}()|[\]\\]/g,"\\export default")+"([^a-z0-9]|$)","i").test(q)).map(([,symbol])=>symbol);
+ const market=/aktie|aktien|börs|boers|aktienmarkt|finanzmarkt|kurs|wall street|wertpapier|dividende|investment|marktbericht/i.test(q);
+ if(!market&&!symbols.length)return null;
+ const list=[...new Set(symbols.length?symbols:["^GDAXI","^GSPC","^IXIC","^DJI","^N225","^STOXX50E"])].slice(0,6);
+ const quotes=await Promise.all(list.map(async symbol=>{
+ try{
+ const response=await fetch("https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(symbol)+"?range=1d&interval=5m",{headers:{"Accept":"application/json","User-Agent":"Mozilla/5.0"},signal:AbortSignal.timeout(6500)});
+ if(!response.ok)throw Error("HTTP "+response.status);
+ const data=await response.json(),m=data.chart?.result?.[0]?.meta;
+ if(!m||!Number.isFinite(m.regularMarketPrice)||!m.regularMarketTime)throw Error("Keine Kursdaten");
+ const previous=m.chartPreviousClose??m.previousClose;
+ return {symbol,name:m.longName||m.shortName||symbol,price:m.regularMarketPrice,currency:m.currency,changePercent:Number.isFinite(previous)&&previous>0?(m.regularMarketPrice-previous)/previous*100:null,asOf:new Date(m.regularMarketTime*1000).toISOString(),source:"Yahoo Finance",url:"https://finance.yahoo.com/quote/"+encodeURIComponent(symbol)};
+ }catch{return {symbol,error:"Kurs nicht verfügbar"}}
+ }));
+ return {quotes,notice:"Indikative Kurse, möglicherweise verzögert. Keine bestätigten Nachrichten oder Ursachen vorhanden."};
+}
 export default {async fetch(request,env){
 const origin="https://stvnsittner-ops.github.io";
 const headers={"Access-Control-Allow-Origin":origin,"Access-Control-Allow-Methods":"POST, OPTIONS, GET","Access-Control-Allow-Headers":"Content-Type, Authorization","Cache-Control":"no-store"};
@@ -90,7 +110,10 @@ try{
 if(Number(request.headers.get("Content-Length"))>20000)return reply({error:"Anfrage zu groß"},413);
 const raw=await request.text();if(raw.length>20000)return reply({error:"Anfrage zu groß"},413);
 const body=JSON.parse(raw);if(typeof body.message!=="string"||!body.message.trim()||body.message.length>4000)return reply({error:"Ungültige Nachricht"},400);
-const r=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+env.OPENROUTER_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:"openrouter/free",messages:[{role:"system",content:"Du bist Aura, eine vielseitige deutschsprachige persönliche KI-Assistentin. Hilf bei Technik, Mathematik, Programmierung, Reisen, Organisation und Alltagswissen. Antworte natürlich, präzise und freundlich, bei komplexen Fragen gründlich. Beachte elektrische Sicherheit. Erfinde keine aktuellen Fakten, Livekurse oder Fähigkeiten. Du hast keinen Zugriff auf persönliche Daten oder Geräte außer dem mitgelieferten Zeitkontext."},{role:"user",content:"Gerätezeit (vom Client): "+String(body.localDate||"unbekannt").slice(0,100)+" "+String(body.localTime||"").slice(0,20)+" "+String(body.timeZone||"").slice(0,80)+"\n\nNutzerfrage: "+body.message}],max_tokens:1800})});
+const market=await chatMarketContext(body.message);
+const system="Du bist Aura, eine vielseitige deutschsprachige persönliche KI-Assistentin. Antworte direkt, freundlich, natürlich und normalerweise in 2 bis 5 Sätzen, bei komplexen Fragen ausführlicher. Keine unnötigen Begrüßungen oder Wiederholungen. Beachte elektrische Sicherheit. Nutze bereitgestellte Marktdaten, nenne Kurszeit, Quelle und mögliche Verzögerung; erfinde keine Kurse oder Nachrichtenursachen. Wenn Daten fehlen, sage es konkret. Du hast keinen Zugriff auf private Konten. Marktinformationen sind keine sicheren Handelssignale.";
+const context="Gerätezeit: "+String(body.localDate||"").slice(0,100)+" "+String(body.localTime||"").slice(0,20)+" "+String(body.timeZone||"").slice(0,80);
+const r=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+env.OPENROUTER_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:"openrouter/free",messages:[{role:"system",content:system+"\n"+context+(market?"\nAbgerufene Marktdaten: "+JSON.stringify(market):"")},{role:"user",content:body.message}],max_tokens:/ausführlich|detailliert|berechnung|schritt für schritt/i.test(body.message)?1800:650})});
 if(!r.ok)return reply({error:"KI vorübergehend nicht verfügbar ("+r.status+")"},502);
 const d=await r.json();const answer=d.choices?.[0]?.message?.content;if(typeof answer!=="string")return reply({error:"Keine KI-Antwort"},502);return reply({answer});
 }catch{return reply({error:"Anfrage fehlgeschlagen"},400)}
