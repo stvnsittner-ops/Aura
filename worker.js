@@ -15,19 +15,11 @@ async function transcribe(request, env) {
  if(n<4000||Math.sqrt(sum/Math.max(n,1))<0.001)throw new Error("Keine deutliche Sprache erkannt. Bitte erneut sprechen.");
  }
 
- try {
-  const result=await env.AI.run("@cf/openai/whisper", {audio:Array.from(bytes)});
-  if(audioTextValid(result.text))return result.text.trim();
-  throw new Error("Kein Text erkannt");
- } catch(first) {
-  let binary="";
-  for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));
-  try {
-   const result=await env.AI.run("@cf/openai/whisper-large-v3-turbo",{audio:btoa(binary),language:"de"});
-   if(audioTextValid(result.text))return result.text.trim();
-   throw new Error("Kein Text erkannt");
-  } catch(second) {throw new Error("Whisper: "+String(first.message||first).slice(0,100)+" / Turbo: "+String(second.message||second).slice(0,100));}
- }
+ let binary="";
+ for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));
+ const result=await env.AI.run("@cf/openai/whisper-large-v3-turbo",{audio:btoa(binary),language:"de",task:"transcribe",vad_filter:true,condition_on_previous_text:false});
+ if(audioTextValid(result.text))return result.text.trim();
+ throw new Error("Keine deutliche deutsche Sprache erkannt. Bitte erneut sprechen.");
 }
 
 async function chatMarketContext(question){
@@ -128,7 +120,7 @@ const img=await env.AI.run("@cf/bytedance/stable-diffusion-xl-lightning",{prompt
 }
 if(url.pathname!=="/api/chat")return url.pathname==="/"?Response.redirect(origin+"/Aura/",302):reply({error:"Not found"},404);
 if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
-if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"44",features:["market","news-search","wikipedia-search","cloudflare-gemma-fallback"]},200);
+if(request.method!=="POST")return reply({status:"Aura API",configured:!!(env.OPENROUTER_API_KEY&&env.AURA_ACCESS_TOKEN),version:"45",features:["market","news-search","wikipedia-search","cloudflare-gemma-fallback"]},200);
 if((!env.OPENROUTER_API_KEY&&!env.AI)||!env.AURA_ACCESS_TOKEN)return reply({error:"Server noch nicht eingerichtet"},503);
 if(request.headers.get("Authorization")!=="Bearer "+env.AURA_ACCESS_TOKEN)return reply({error:"Zugang verweigert"},401);
 try{
