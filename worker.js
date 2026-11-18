@@ -4,10 +4,10 @@ async function transcribe(request, env) {
     throw new Error("Ungültige Aufnahme");
   }
   const result = await env.AI.run(
-    "@cf/openai/whisper",
-    { audio: Array.from(new Uint8Array(audio)) }
+    "@cf/openai/whisper-large-v3-turbo",
+    { audio: Array.from(new Uint8Array(audio)), language: "de", task: "transcribe", vad_filter: true }
   );
-  return result.text;
+  return result.text || result.transcription_info?.text || "";
 }
 export default {async fetch(request,env){
 const origin="https://stvnsittner-ops.github.io";
@@ -25,8 +25,8 @@ if (url.pathname === "/api/speech") {
     return reply({error:"Zugang verweigert"},401);
   try {
     return reply({text:await transcribe(request,env)});
-  } catch {
-    return reply({error:"Spracherkennung fehlgeschlagen"},502);
+  } catch (error) {
+    return reply({error:"Spracherkennung fehlgeschlagen: "+String(error?.message||error).slice(0,180)},502);
   }
 }
 if(url.pathname==="/api/image"){
