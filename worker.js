@@ -29,6 +29,19 @@ if (url.pathname === "/api/speech") {
     return reply({error:"Spracherkennung fehlgeschlagen: "+String(error?.message||error).slice(0,180)},502);
   }
 }
+if(url.pathname==="/api/quote"){
+if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
+if(request.method!=="GET")return reply({error:"Method not allowed"},405);
+const symbol=(url.searchParams.get("symbol")||"").trim().toUpperCase();
+if(!/^[A-Z0-9.^=-]{1,20}$/.test(symbol))return reply({error:"Ungültiges Aktiensymbol"},400);
+try{
+const upstream=await fetch("https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(symbol)+"?range=1d&interval=5m",{headers:{"Accept":"application/json","User-Agent":"Mozilla/5.0"}});
+if(!upstream.ok)return reply({error:"Kursquelle derzeit nicht erreichbar"},502);
+const data=await upstream.json(),q=data.chart?.result?.[0],meta=q?.meta;
+if(!meta||typeof meta.regularMarketPrice!=="number")return reply({error:"Kein Kurs für dieses Symbol gefunden"},404);
+return reply({symbol:meta.symbol||symbol,price:meta.regularMarketPrice,currency:meta.currency||"",previousClose:meta.chartPreviousClose??meta.previousClose??null,marketState:meta.marketState||"unknown",asOf:meta.regularMarketTime||null,source:"Yahoo Finance",delayed:true});
+}catch{return reply({error:"Kursabfrage fehlgeschlagen"},502)}
+}
 if(url.pathname==="/api/image"){
 if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
 if(request.method!=="POST")return reply({error:"Method not allowed"},405);
