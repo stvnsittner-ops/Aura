@@ -67,14 +67,23 @@ if(!env.LITEAPI_KEY)return reply({error:"LITEAPI_KEY fehlt"},503);
 if(!env.LITEAPI_KEY.startsWith("sand_"))return reply({error:"Nur Sandbox aktiviert; Produktionskosten noch nicht geklärt"},503);
 try{const b=await request.json(),city=String(b.city||"").trim(),country=String(b.country||"").toUpperCase(),adults=Number(b.adults);
 if(!city||city.length>100||!/^[A-Z]{2}$/.test(country)||!Number.isInteger(adults)||adults<1||adults>9||!/^\d{4}-\d{2}-\d{2}$/.test(b.from)||!/^\d{4}-\d{2}-\d{2}$/.test(b.to)||b.to<=b.from)return reply({error:"Ungültige Suchdaten"},400);
-const payload={cityName:city,countryCode:country,checkin:b.from,checkout:b.to,currency:"EUR",guestNationality:"DE",occupancies:[{adults,rooms:1}],limit:50,maxRatesPerHotel:1,includeHotelData:true,timeout:12};
-if([3,4,5].includes(Number(b.stars)))payload.starRating=[3,3.5,4,4.5,5].filter(n=>n>=Number(b.stars));
-const resp=await fetch("https://api.liteapi.travel/v3.0/hotels/rates",{method:"POST",headers:{"X-API-Key":env.LITEAPI_KEY,"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(25000)});
-if(!resp.ok)return reply({error:"LiteAPI-Testabfrage fehlgeschlagen (HTTP "+resp.status+")"},502);
-const d=await resp.json(),meta=new Map((d.hotels||[]).map(h=>[h.id,h])),offers=[];
-for(const h of d.data||[]){const m=meta.get(h.hotelId);if(!m)continue;for(const t of h.roomTypes||[]){const total=t.offerRetailRate?.amount;const p=total??t.rates?.[0]?.retailRate?.total?.[0]?.amount;const cur=t.offerRetailRate?.currency??t.rates?.[0]?.retailRate?.total?.[0]?.currency;if(!Number.isFinite(p)||p<=0||cur!=="EUR")continue;offers.push({id:h.hotelId,name:m.name,city:m.city_name||city,country:m.country_code||country,photo:m.thumbnail||m.main_photo,stars:m.stars,rating:m.rating,price:p,board:t.rates?.[0]?.boardName||null});}}
-const unique=new Map();for(const x of offers.sort((a,b)=>a.price-b.price))if(!unique.has(x.id))unique.set(x.id,x);
-return reply({sandbox:true,offers:[...unique.values()].slice(0,30)});
+const api="https://api.liteapi.travel/v3.0";
+const auth={"X-API-Key":env.LITEAPI_KEY,Accept:"application/json"};
+const aliases={palma:"Palma de Mallorca",mallorca:"Palma de Mallorca",kreta:"Heraklion",heraklion:"Heraklion",münchen:"Munich",rom:"Rome",mailand:"Milan",london:"London"};
+const queryCity=aliases[city.toLowerCase()]||city;
+const listing=await fetch(api+"/data/hotels?"+new URLSearchParams({cityName:queryCity,countryCode:country,limit:"50"}),{headers:auth,signal:AbortSignal.timeout(12000)});
+if(!listing.ok)return reply({error:"Hotelverzeichnis HTTP "+listing.status},502);
+const ld=await listing.json();
+const hotels=(Array.isArray(ld.data)?ld.data:[]).filter(h=>h.id&&h.name&&(!Number(b.stars)||Number(h.stars)>=Number(b.stars)));
+if(!hotels.length)return reply({sandbox:true,offers:[],message:"Keine Hotels im Verzeichnis für "+queryCity+" gefunden."});
+const payload={hotelIds:hotels.map(h=>h.id),checkin:b.from,checkout:b.to,currency:"EUR",guestNationality:"DE",occupancies:[{adults}],maxRatesPerHotel:1,includeHotelData:true,timeout:12};
+const resp=await fetch(api+"/hotels/rates",{method:"POST",headers:{...auth,"Content-Type":"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(25000)});
+if(!resp.ok)return reply({error:"LiteAPI-Testabfrage HTTP "+resp.status},502);
+const d=await resp.json(),meta=new Map(hotels.map(h=>[h.id,h])),prices=new Map();
+for(const h of d.hotels||[])meta.set(h.id,{...meta.get(h.id),...h});
+for(const h of d.data||[]){if(!meta.has(h.hotelId))continue;for(const t of h.roomTypes||[]){const rate=t.offerRetailRate;const total=t.rates?.[0]?.retailRate?.total?.[0];const x=rate&&typeof rate.amount==="number"?rate:total;if(!x||!Number.isFinite(x.amount)||x.amount<=0||x.currency!=="EUR")continue;if(!prices.has(h.hotelId)||prices.get(h.hotelId).price>x.amount)prices.set(h.hotelId,{price:x.amount,board:t.rates?.[0]?.boardName||null});}}
+const offers=hotels.map(h=>{const m=meta.get(h.id);return {id:h.id,name:m.name,city:m.city_name||queryCity,country:m.country_code||country,photo:m.thumbnail||m.main_photo,stars:m.stars,rating:m.rating,price:prices.get(h.id)?.price??null,board:prices.get(h.id)?.board??null}}).sort((a,b)=>(a.price??Infinity)-(b.price??Infinity));
+return reply({sandbox:true,offers:offers.slice(0,30),priced:prices.size,message:prices.size?null:"Hotels gefunden, aber keine EUR-Testpreise für diese Daten verfügbar."});
 }catch{return reply({error:"Hotelabfrage nicht verfügbar"},502)}
 }
 if(url.pathname==="/api/flights"){
