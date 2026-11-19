@@ -59,6 +59,24 @@ const headers={"Access-Control-Allow-Origin":origin,"Access-Control-Allow-Method
 const reply=(data,status=200)=>Response.json(data,{status,headers});
 const url=new URL(request.url);
 
+if(url.pathname==="/api/hotels"){
+if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
+if(request.method!=="POST")return reply({error:"Method not allowed"},405);
+if(!env.AURA_ACCESS_TOKEN||request.headers.get("Authorization")!=="Bearer "+env.AURA_ACCESS_TOKEN)return reply({error:"Zugang verweigert"},401);
+if(!env.LITEAPI_KEY)return reply({error:"LITEAPI_KEY fehlt"},503);
+if(!env.LITEAPI_KEY.startsWith("sand_"))return reply({error:"Nur Sandbox aktiviert; Produktionskosten noch nicht geklärt"},503);
+try{const b=await request.json(),city=String(b.city||"").trim(),country=String(b.country||"").toUpperCase(),adults=Number(b.adults);
+if(!city||city.length>100||!/^[A-Z]{2}$/.test(country)||!Number.isInteger(adults)||adults<1||adults>9||!/^\d{4}-\d{2}-\d{2}$/.test(b.from)||!/^\d{4}-\d{2}-\d{2}$/.test(b.to)||b.to<=b.from)return reply({error:"Ungültige Suchdaten"},400);
+const payload={cityName:city,countryCode:country,checkin:b.from,checkout:b.to,currency:"EUR",guestNationality:"DE",occupancies:[{adults,rooms:1}],limit:50,maxRatesPerHotel:1,includeHotelData:true,timeout:12};
+if([3,4,5].includes(Number(b.stars)))payload.starRating=[3,3.5,4,4.5,5].filter(n=>n>=Number(b.stars));
+const resp=await fetch("https://api.liteapi.travel/v3.0/hotels/rates",{method:"POST",headers:{"X-API-Key":env.LITEAPI_KEY,"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(25000)});
+if(!resp.ok)return reply({error:"LiteAPI-Testabfrage fehlgeschlagen (HTTP "+resp.status+")"},502);
+const d=await resp.json(),meta=new Map((d.hotels||[]).map(h=>[h.id,h])),offers=[];
+for(const h of d.data||[]){const m=meta.get(h.hotelId);if(!m)continue;for(const t of h.roomTypes||[]){const total=t.offerRetailRate?.amount;const p=total??t.rates?.[0]?.retailRate?.total?.[0]?.amount;const cur=t.offerRetailRate?.currency??t.rates?.[0]?.retailRate?.total?.[0]?.currency;if(!Number.isFinite(p)||p<=0||cur!=="EUR")continue;offers.push({id:h.hotelId,name:m.name,city:m.city_name||city,country:m.country_code||country,photo:m.thumbnail||m.main_photo,stars:m.stars,rating:m.rating,price:p,board:t.rates?.[0]?.boardName||null});}}
+const unique=new Map();for(const x of offers.sort((a,b)=>a.price-b.price))if(!unique.has(x.id))unique.set(x.id,x);
+return reply({sandbox:true,offers:[...unique.values()].slice(0,30)});
+}catch{return reply({error:"Hotelabfrage nicht verfügbar"},502)}
+}
 if(url.pathname==="/api/flights"){
 if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
 if(request.method!=="GET")return reply({error:"Method not allowed"},405);
