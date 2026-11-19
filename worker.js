@@ -63,27 +63,22 @@ if(url.pathname==="/api/hotels"){
 if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
 if(request.method!=="POST")return reply({error:"Method not allowed"},405);
 if(!env.AURA_ACCESS_TOKEN||request.headers.get("Authorization")!=="Bearer "+env.AURA_ACCESS_TOKEN)return reply({error:"Zugang verweigert"},401);
-if(!env.LITEAPI_KEY)return reply({error:"LITEAPI_KEY fehlt"},503);
-if(!env.LITEAPI_KEY.startsWith("sand_"))return reply({error:"Nur Sandbox aktiviert; Produktionskosten noch nicht geklärt"},503);
+if(!env.SERPAPI_KEY)return reply({error:"SERPAPI_KEY fehlt"},503);
 try{const b=await request.json(),city=String(b.city||"").trim(),country=String(b.country||"").toUpperCase(),adults=Number(b.adults);
 if(!city||city.length>100||!/^[A-Z]{2}$/.test(country)||!Number.isInteger(adults)||adults<1||adults>9||!/^\d{4}-\d{2}-\d{2}$/.test(b.from)||!/^\d{4}-\d{2}-\d{2}$/.test(b.to)||b.to<=b.from)return reply({error:"Ungültige Suchdaten"},400);
-const api="https://api.liteapi.travel/v3.0";
-const auth={"X-API-Key":env.LITEAPI_KEY,Accept:"application/json"};
-const aliases={palma:"Palma de Mallorca",mallorca:"Palma de Mallorca",kreta:"Heraklion",heraklion:"Heraklion",münchen:"Munich",rom:"Rome",mailand:"Milan",london:"London"};
-const queryCity=aliases[city.toLowerCase()]||city;
-const listing=await fetch(api+"/data/hotels?"+new URLSearchParams({cityName:queryCity,countryCode:country,limit:"50"}),{headers:auth,signal:AbortSignal.timeout(12000)});
-if(!listing.ok)return reply({error:"Hotelverzeichnis HTTP "+listing.status},502);
-const ld=await listing.json();
-const hotels=(Array.isArray(ld.data)?ld.data:[]).filter(h=>h.id&&h.name&&(!Number(b.stars)||Number(h.stars)>=Number(b.stars)));
-if(!hotels.length)return reply({sandbox:true,offers:[],message:"Keine Hotels im Verzeichnis für "+queryCity+" gefunden."});
-const payload={hotelIds:hotels.map(h=>h.id),checkin:b.from,checkout:b.to,currency:"EUR",guestNationality:"DE",occupancies:[{adults}],maxRatesPerHotel:1,includeHotelData:true,timeout:12};
-const resp=await fetch(api+"/hotels/rates",{method:"POST",headers:{...auth,"Content-Type":"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(25000)});
-if(!resp.ok)return reply({error:"LiteAPI-Testabfrage HTTP "+resp.status},502);
-const d=await resp.json(),meta=new Map(hotels.map(h=>[h.id,h])),prices=new Map();
-for(const h of d.hotels||[])meta.set(h.id,{...meta.get(h.id),...h});
-for(const h of d.data||[]){if(!meta.has(h.hotelId))continue;for(const t of h.roomTypes||[]){const rate=t.offerRetailRate;const total=t.rates?.[0]?.retailRate?.total?.[0];const x=rate&&typeof rate.amount==="number"?rate:total;if(!x||!Number.isFinite(x.amount)||x.amount<=0||x.currency!=="EUR")continue;if(!prices.has(h.hotelId)||prices.get(h.hotelId).price>x.amount)prices.set(h.hotelId,{price:x.amount,board:t.rates?.[0]?.boardName||null});}}
-const offers=hotels.map(h=>{const m=meta.get(h.id);return {id:h.id,name:m.name,city:m.city_name||queryCity,country:m.country_code||country,photo:m.thumbnail||m.main_photo,stars:m.stars,rating:m.rating,price:prices.get(h.id)?.price??null,board:prices.get(h.id)?.board??null}}).sort((a,b)=>(a.price??Infinity)-(b.price??Infinity));
-const selected=offers.slice(0,30);for(let i=0;i<selected.length;i+=5)await Promise.all(selected.slice(i,i+5).map(async h=>{try{const res=await fetch(api+"/data/hotel?"+new URLSearchParams({hotelId:h.id}),{headers:auth,signal:AbortSignal.timeout(5000)});if(!res.ok)return;const j=await res.json();const m=j.data||{};const imgs=Array.isArray(m.hotelImages)?m.hotelImages:Array.isArray(m.images)?m.images:[];h.photos=[...new Set([h.photo,...imgs.map(x=>typeof x==="string"?x:x.url||x.imageUrl||x.image).filter(Boolean)].filter(x=>typeof x==="string"&&x.startsWith("https://")))].slice(0,15)}catch{}}));return reply({sandbox:true,offers:selected,priced:prices.size,message:prices.size?null:"Hotels gefunden, aber keine EUR-Testpreise für diese Daten verfügbar."});
+const nation=new Intl.DisplayNames(["de"],{type:"region"}).of(country);
+const params=new URLSearchParams({engine:"google_hotels",q:"Hotels in "+city+", "+nation,check_in_date:b.from,check_out_date:b.to,adults:String(adults),currency:"EUR",gl:"de",hl:"de",sort_by:"3"});
+if([3,4,5].includes(Number(b.stars)))params.set("hotel_class",[3,4,5].filter(n=>n>=Number(b.stars)).join(","));
+const cacheKey=new Request("https://aura.stvn-sittner.workers.dev/cache/hotels?"+params);
+const cached=await caches.default.match(cacheKey);if(cached)return reply(await cached.json());
+params.set("api_key",env.SERPAPI_KEY);
+const resp=await fetch("https://serpapi.com/search.json?"+params,{signal:AbortSignal.timeout(25000)});
+if(!resp.ok)return reply({error:"Hotelpreisquelle HTTP "+resp.status},502);
+const d=await resp.json();if(d.error)return reply({error:"Hotelpreisquelle nicht verfügbar oder Suchkontingent erschöpft"},502);
+const offers=(d.properties||[]).filter(h=>h.name).map(h=>{const p=h.total_rate?.extracted_lowest;return {name:h.name,city,country,price:Number.isFinite(p)&&p>0?p:null,stars:h.extracted_hotel_class,rating:h.overall_rating,photos:(h.images||[]).map(i=>i.original_image||i.thumbnail).filter(u=>typeof u==="string"&&u.startsWith("https://")).slice(0,15),provider:null}}).filter(h=>!Number(b.stars)||h.stars>=Number(b.stars)).sort((a,b)=>(a.price??Infinity)-(b.price??Infinity));
+const result={sandbox:false,offers:offers.slice(0,30),updatedAt:new Date().toISOString(),message:"Google Hotels: angezeigte Gesamtpreise können sich ändern; Flug nicht enthalten."};
+try{await caches.default.put(cacheKey,Response.json(result,{headers:{"Cache-Control":"public, max-age=3600"}}))}catch{}
+return reply(result);
 }catch{return reply({error:"Hotelabfrage nicht verfügbar"},502)}
 }
 if(url.pathname==="/api/flights"){
