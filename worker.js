@@ -67,12 +67,13 @@ if(!env.TRAVELPAYOUTS_TOKEN)return reply({error:"Travelpayouts-Token fehlt in Cl
 try{
 const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Berlin",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
 const fri=new Date(today+"T12:00:00Z");fri.setUTCDate(fri.getUTCDate()+(5-fri.getUTCDay()+7)%7);
+const offset=Number(url.searchParams.get("offset")||0);if(!Number.isInteger(offset)||offset<0||offset>=52)return reply({error:"Ungültiger Zeitraum"},400);
 const jobs=[],fmt=d=>d.toISOString().slice(0,10);
-for(let w=0;w<8;w++){const f=new Date(fri);f.setUTCDate(f.getUTCDate()+w*7);const s=new Date(f);s.setUTCDate(s.getUTCDate()+2);for(const origin of ["FMO","DTM","DUS","CGN"])jobs.push({origin,departure_at:fmt(f),return_at:fmt(s)})}
+for(let w=offset;w<Math.min(offset+8,52);w++){const f=new Date(fri);f.setUTCDate(f.getUTCDate()+w*7);const s=new Date(f);s.setUTCDate(s.getUTCDate()+2);for(const origin of ["FMO","DTM","DUS","CGN"])jobs.push({origin,departure_at:fmt(f),return_at:fmt(s)})}
 const countries=new Set("AL AD AT BA BE BG BY CH CY CZ DE DK EE ES FI FO FR GB GE GI GR HR HU IE IS IT LI LT LU LV MC MD ME MK MT NL NO PL PT RO RS SE SI SK SM TR UA VA XK".split(" "));
 const cr=await fetch("https://api.travelpayouts.com/data/en/cities.json",{signal:AbortSignal.timeout(10000)});
 if(!cr.ok)return reply({error:"Zielortdaten nicht verfügbar"},502);
-const cities=new Map((await cr.json()).filter(x=>countries.has(x.country_code)).map(x=>[x.code,x.name||x.code]));
+const cities=new Map((await cr.json()).filter(x=>countries.has(x.country_code)).map(x=>[x.code,{name:x.name||x.code,country:x.country_code}]));
 const offers=[];let failed=0;
 for(let i=0;i<jobs.length;i+=8)await Promise.all(jobs.slice(i,i+8).map(async j=>{
 try{
@@ -81,7 +82,7 @@ const res=await fetch("https://api.travelpayouts.com/aviasales/v3/prices_for_dat
 if(!res.ok)throw Error();const d=await res.json();if(!d.success||!Array.isArray(d.data))throw Error();
 for(const x of d.data){if(!cities.has(x.destination)||x.departure_at?.slice(0,10)!==j.departure_at||x.return_at?.slice(0,10)!==j.return_at||!Number.isFinite(x.price)||x.price<=0||(x.origin_airport||x.origin)!==j.origin)continue;
 const currency=x.currency||d.currency||"eur";if(String(currency).toLowerCase()!=="eur")continue;
-offers.push({origin:j.origin,destination:x.destination,destinationAirport:x.destination_airport||x.destination,name:cities.get(x.destination),price:x.price,departure:x.departure_at,return:x.return_at,airline:x.airline,flight:x.flight_number,link:typeof x.link==="string"&&x.link.startsWith("/search/")?"https://www.aviasales.com"+x.link:null});
+offers.push({origin:j.origin,destination:x.destination,destinationAirport:x.destination_airport||x.destination,name:cities.get(x.destination).name,country:cities.get(x.destination).country,price:x.price,departure:x.departure_at,return:x.return_at,airline:x.airline,flight:x.flight_number,link:typeof x.link==="string"&&x.link.startsWith("/search/")?"https://www.aviasales.com"+x.link:null});
 }
 }catch{failed++}
 }));
