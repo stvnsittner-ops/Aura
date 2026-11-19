@@ -69,13 +69,13 @@ if(!city||city.length>100||!/^[A-Z]{2}$/.test(country)||!Number.isInteger(adults
 const nation=new Intl.DisplayNames(["de"],{type:"region"}).of(country);
 const params=new URLSearchParams({engine:"google_hotels",q:"Hotels in "+city+", "+nation,check_in_date:b.from,check_out_date:b.to,adults:String(adults),currency:"EUR",gl:"de",hl:"de",sort_by:"3"});
 if([3,4,5].includes(Number(b.stars)))params.set("hotel_class",[3,4,5].filter(n=>n>=Number(b.stars)).join(","));
-const cacheKey=new Request("https://aura.stvn-sittner.workers.dev/cache/hotels?"+params);
+const cacheKey=new Request("https://aura.stvn-sittner.workers.dev/cache/hotels-v2?"+params);
 const cached=await caches.default.match(cacheKey);if(cached)return reply(await cached.json());
 params.set("api_key",env.SERPAPI_KEY);
 const resp=await fetch("https://serpapi.com/search.json?"+params,{signal:AbortSignal.timeout(25000)});
 if(!resp.ok)return reply({error:"Hotelpreisquelle HTTP "+resp.status},502);
 const d=await resp.json();if(d.error)return reply({error:"Hotelpreisquelle nicht verfügbar oder Suchkontingent erschöpft"},502);
-const offers=(d.properties||[]).filter(h=>h.name).map(h=>{const p=h.total_rate?.extracted_lowest;return {name:h.name,city,country,price:Number.isFinite(p)&&p>0?p:null,stars:h.extracted_hotel_class,rating:h.overall_rating,photos:(h.images||[]).map(i=>i.original_image||i.thumbnail).filter(u=>typeof u==="string"&&u.startsWith("https://")).slice(0,15),provider:null}}).filter(h=>!Number(b.stars)||h.stars>=Number(b.stars)).sort((a,b)=>(a.price??Infinity)-(b.price??Infinity));
+const offers=(d.properties||[]).filter(h=>h.name).map(h=>{const p=h.total_rate?.extracted_lowest;return {name:h.name,city,country,price:Number.isFinite(p)&&p>0?p:null,stars:h.extracted_hotel_class,rating:h.overall_rating,photos:(h.images||[]).map(i=>i.original_image||i.thumbnail).filter(u=>typeof u==="string"&&u.startsWith("https://")).slice(0,15),provider:null,amenities:Array.isArray(h.amenities)?h.amenities.filter(x=>typeof x==='string'):[],description:typeof h.description==='string'?h.description:'',checkIn:h.check_in_time||null,checkOut:h.check_out_time||null,rateSources:(h.prices||[]).slice(0,10).map(p=>({source:p.source,rate:p.rate_per_night?.lowest||null}))}}).filter(h=>!Number(b.stars)||h.stars>=Number(b.stars)).sort((a,b)=>(a.price??Infinity)-(b.price??Infinity));
 const result={sandbox:false,offers:offers.slice(0,30),updatedAt:new Date().toISOString(),message:"Google Hotels: angezeigte Gesamtpreise können sich ändern; Flug nicht enthalten."};
 try{await caches.default.put(cacheKey,Response.json(result,{headers:{"Cache-Control":"public, max-age=3600"}}))}catch{}
 return reply(result);
