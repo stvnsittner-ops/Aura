@@ -37,6 +37,8 @@ const finCategoriesOut=['Wohnen','Lebensmittel','Mobilität','Versicherungen','F
 const finCategoriesIn=['Gehalt','Nebenverdienst','Erstattung','Sonstiges'];
 const finNow=new Date();let finYear=finNow.getFullYear(),finMonth=finNow.getMonth(),finData={};
 try{const parsed=JSON.parse(localStorage.getItem('aura-finance-v3')||'{}');if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))finData=parsed}catch{}
+// Import existing simple ledger once into the current month, without deleting its original copy.
+if(!localStorage.getItem('aura-finance-v3-migrated')){const old=Array.isArray(s.books)?s.books:[];if(old.length){const key=finKey(finYear,finMonth);finData[key]=[...(Array.isArray(finData[key])?finData[key]:[]),...old.filter(x=>Number.isSafeInteger(x.cents)&&x.cents>0).map((x,i)=>({id:'legacy-'+i,kind:x.kind==='Einnahme'?'Einnahme':'Ausgabe',desc:String(x.desc||'Früherer Eintrag'),category:'Sonstiges',cents:x.cents}))];try{localStorage.setItem('aura-finance-v3',JSON.stringify(finData));localStorage.setItem('aura-finance-v3-migrated','1')}catch{}}else try{localStorage.setItem('aura-finance-v3-migrated','1')}catch{}}
 function persistFinance(){try{localStorage.setItem('aura-finance-v3',JSON.stringify(finData));return true}catch{alert('Finanzdaten konnten nicht gespeichert werden. Bitte Speicherplatz prüfen.');return false}}
 function finKey(y,m){return y+'-'+String(m+1).padStart(2,'0')}
 function finEntries(y=finYear,m=finMonth){const x=finData[finKey(y,m)];return Array.isArray(x)?x:[]}
